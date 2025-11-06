@@ -8,12 +8,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Textarea } from "@/components/ui/textarea"
 import { ScenarioCard } from "@/components/scenario-card"
 import { TimeRestrictionDialog } from "@/components/time-restriction-dialog"
-import { ReCAPTCHA } from "@/components/recaptcha"
 import { scenarios } from "@/data/scenarios"
-import { Shield, RefreshCw, AlertCircle } from "lucide-react"
-import { verifyReCAPTCHA } from "@/app/actions/verify-recaptcha"
-import { useToast } from "@/hooks/use-toast"
-import { getRecaptchaConfig } from "@/app/actions/get-recaptcha-config"
+import { Shield, RefreshCw } from "lucide-react"
 
 // Add a helper function to format time remaining
 function formatTimeRemaining(milliseconds: number): string {
@@ -33,28 +29,7 @@ export function InfoSecGame() {
   const [lastScenarioTime, setLastScenarioTime] = useState<number>(0)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState("")
-  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null)
-  const [isVerifying, setIsVerifying] = useState(false)
-  const [verificationError, setVerificationError] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isRecaptchaConfigured, setIsRecaptchaConfigured] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
-  const { toast } = useToast()
-
-  // Check if reCAPTCHA is configured using the server action
-  useEffect(() => {
-    async function checkRecaptchaConfig() {
-      try {
-        const config = await getRecaptchaConfig()
-        setIsRecaptchaConfigured(config.isConfigured)
-      } catch (error) {
-        console.error("Error checking reCAPTCHA configuration:", error)
-        setIsRecaptchaConfigured(false)
-      }
-    }
-
-    checkRecaptchaConfig()
-  }, [])
 
   // Load the last scenario time from localStorage on component mount
   useEffect(() => {
@@ -69,50 +44,6 @@ export function InfoSecGame() {
     }
   }, [])
 
-  // This function is called when the reCAPTCHA verification is complete
-  const handleRecaptchaVerify = async (token: string) => {
-    setRecaptchaToken(token)
-    setVerificationError(null)
-
-    // If we're in the process of submitting the form, continue with submission
-    if (isSubmitting) {
-      await processFormSubmission(token)
-    }
-  }
-
-  // Process the form submission with the reCAPTCHA token
-  const processFormSubmission = async (token: string) => {
-    setIsVerifying(true)
-    setVerificationError(null)
-
-    try {
-      // Verify the reCAPTCHA token
-      const isValid = await verifyReCAPTCHA(token)
-
-      if (isValid) {
-        setSubmitted(true)
-        setVerificationError(null)
-      } else {
-        setVerificationError("reCAPTCHA verification failed. Please try again.")
-        // Reset reCAPTCHA
-        if (window.grecaptcha) {
-          try {
-            window.grecaptcha.reset()
-          } catch (err) {
-            console.error("Error resetting reCAPTCHA:", err)
-          }
-        }
-        setRecaptchaToken(null)
-      }
-    } catch (error) {
-      console.error("Error during verification:", error)
-      setVerificationError("An error occurred during verification. Please try again.")
-    } finally {
-      setIsVerifying(false)
-      setIsSubmitting(false)
-    }
-  }
-
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -121,22 +52,7 @@ export function InfoSecGame() {
       return
     }
 
-    // Set submitting state
-    setIsSubmitting(true)
-
-    // If we already have a token (or we're in development without reCAPTCHA), process the submission
-    if (recaptchaToken || (!isRecaptchaConfigured && process.env.NODE_ENV === "development")) {
-      await processFormSubmission(recaptchaToken || "mock-token-for-development")
-      return
-    }
-
-    // If reCAPTCHA is configured and we're in production, execute it
-    if (isRecaptchaConfigured && window.executeReCaptcha && process.env.NODE_ENV !== "development") {
-      window.executeReCaptcha()
-    } else {
-      // If reCAPTCHA is not available or we're in development, proceed without it
-      await processFormSubmission("mock-token-for-development")
-    }
+    setSubmitted(true)
   }
 
   const handleNewScenario = () => {
@@ -155,31 +71,11 @@ export function InfoSecGame() {
       setCurrentScenario(newScenario)
       setUserAnswer("")
       setSubmitted(false)
-      setRecaptchaToken(null)
-      setVerificationError(null)
 
       // Update the last scenario time
       setLastScenarioTime(currentTime)
       localStorage.setItem("lastScenarioTime", currentTime.toString())
     }
-  }
-
-  const handleRecaptchaExpire = () => {
-    setRecaptchaToken(null)
-    toast({
-      title: "reCAPTCHA Expired",
-      description: "The reCAPTCHA verification has expired. Please try submitting again.",
-      variant: "destructive",
-    })
-  }
-
-  const handleRecaptchaError = () => {
-    setRecaptchaToken(null)
-    toast({
-      title: "reCAPTCHA Error",
-      description: "There was an error with reCAPTCHA. Please refresh the page and try again.",
-      variant: "destructive",
-    })
   }
 
   return (
@@ -220,32 +116,13 @@ export function InfoSecGame() {
                   {userAnswer.length}/{MAX_CHAR_LENGTH}
                 </div>
               </div>
-
-              {/* Invisible reCAPTCHA */}
-              <div className="flex flex-col items-center">
-                <ReCAPTCHA
-                  onVerify={handleRecaptchaVerify}
-                  onExpire={handleRecaptchaExpire}
-                  onError={handleRecaptchaError}
-                  invisible={true}
-                  className="mx-auto"
-                />
-                {verificationError && (
-                  <div className="flex items-center gap-2 mt-2 text-sm text-red-600 dark:text-red-400">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>{verificationError}</span>
-                  </div>
-                )}
-              </div>
             </CardContent>
             <CardFooter className="flex justify-between">
               <Button type="button" variant="outline" onClick={handleNewScenario}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 New Scenario
               </Button>
-              <Button type="submit" disabled={isVerifying || isSubmitting}>
-                {isVerifying || isSubmitting ? "Verifying..." : "Submit Analysis"}
-              </Button>
+              <Button type="submit">Submit Analysis</Button>
             </CardFooter>
           </form>
         </Card>
