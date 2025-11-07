@@ -9,14 +9,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ScenarioCard } from "@/components/scenario-card"
 import { TimeRestrictionDialog } from "@/components/time-restriction-dialog"
 import { scenarios } from "@/data/scenarios"
-import { Shield, RefreshCw } from "lucide-react"
-
-// Add a helper function to format time remaining
-function formatTimeRemaining(milliseconds: number): string {
-  const minutes = Math.floor(milliseconds / 60000)
-  const seconds = Math.floor((milliseconds % 60000) / 1000)
-  return `${minutes} minute${minutes !== 1 ? "s" : ""} and ${seconds} second${seconds !== 1 ? "s" : ""}`
-}
+import { Shield, RefreshCw, Loader2, CheckCircle2, AlertCircle, Lightbulb, Target } from "lucide-react"
+import type { AnalysisResult } from "@/app/api/analyze/route"
 
 const MAX_CHAR_LENGTH = 1000
 
@@ -26,25 +20,24 @@ export function InfoSecGame() {
   })
   const [userAnswer, setUserAnswer] = useState("")
   const [submitted, setSubmitted] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [lastScenarioTime, setLastScenarioTime] = useState<number>(0)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState("")
   const formRef = useRef<HTMLFormElement>(null)
 
-  // Load the last scenario time from localStorage on component mount
   useEffect(() => {
     const storedTime = localStorage.getItem("lastScenarioTime")
     if (storedTime) {
       setLastScenarioTime(Number.parseInt(storedTime, 10))
     } else {
-      // If no stored time, set current time and save it
       const currentTime = Date.now()
       setLastScenarioTime(currentTime)
       localStorage.setItem("lastScenarioTime", currentTime.toString())
     }
   }, [])
 
-  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -52,7 +45,39 @@ export function InfoSecGame() {
       return
     }
 
-    setSubmitted(true)
+    setIsAnalyzing(true)
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userResponse: userAnswer,
+          scenario: currentScenario,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze response")
+      }
+
+      const result: AnalysisResult = await response.json()
+      setAnalysisResult(result)
+    } catch (error) {
+      console.error("[v0] Error analyzing response:", error)
+      setAnalysisResult({
+        strengths: [],
+        gaps: [],
+        suggestions: [],
+        score: 0,
+        overallFeedback: "We encountered an error analyzing your response. Please try again.",
+      })
+    } finally {
+      setIsAnalyzing(false)
+      setSubmitted(true)
+    }
   }
 
   const handleNewScenario = () => {
@@ -61,28 +86,47 @@ export function InfoSecGame() {
     const fifteenMinutes = 15 * 60 * 1000 // 15 minutes in milliseconds
 
     if (timeDifference < fifteenMinutes) {
-      // Less than 15 minutes have passed
       const remaining = fifteenMinutes - timeDifference
       setTimeRemaining(formatTimeRemaining(remaining))
       setDialogOpen(true)
     } else {
-      // More than 15 minutes have passed, allow new scenario
       const newScenario = scenarios[Math.floor(Math.random() * scenarios.length)]
       setCurrentScenario(newScenario)
       setUserAnswer("")
       setSubmitted(false)
+      setAnalysisResult(null)
 
-      // Update the last scenario time
       setLastScenarioTime(currentTime)
       localStorage.setItem("lastScenarioTime", currentTime.toString())
     }
+  }
+
+  // Add a helper function to format time remaining
+  function formatTimeRemaining(milliseconds: number): string {
+    const minutes = Math.floor(milliseconds / 60000)
+    const seconds = Math.floor((milliseconds % 60000) / 1000)
+    return `${minutes} minute${minutes !== 1 ? "s" : ""} and ${seconds} second${seconds !== 1 ? "s" : ""}`
   }
 
   return (
     <div className="space-y-6">
       <ScenarioCard scenario={currentScenario} />
 
-      {!submitted ? (
+      {isAnalyzing ? (
+        <Card className="border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30">
+          <CardHeader>
+            <CardTitle className="text-blue-700 dark:text-blue-400 flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Analyzing Your Response
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-blue-700 dark:text-blue-400">
+              Our AI security tutor is evaluating your analysis. This will take just a moment...
+            </p>
+          </CardContent>
+        </Card>
+      ) : !submitted ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -126,15 +170,71 @@ export function InfoSecGame() {
             </CardFooter>
           </form>
         </Card>
-      ) : (
-        <Card className="border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30">
+      ) : analysisResult ? (
+        <Card className="border-emerald-200 dark:border-emerald-900">
           <CardHeader>
-            <CardTitle className="text-emerald-700 dark:text-emerald-400">Thank You!</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+              <Target className="h-5 w-5" />
+              Analysis Results
+            </CardTitle>
+            <CardDescription>Score: {analysisResult.score}/10 security concepts identified</CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-emerald-700 dark:text-emerald-400">
-              Your analysis has been submitted. A security tutor will review your response and provide feedback soon.
-            </p>
+          <CardContent className="space-y-6">
+            {/* Overall Feedback */}
+            <div className="p-4 rounded-lg bg-muted/50">
+              <p className="text-sm leading-relaxed">{analysisResult.overallFeedback}</p>
+            </div>
+
+            {/* Strengths */}
+            {analysisResult.strengths.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-semibold flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  What You Identified
+                </h3>
+                <ul className="space-y-1.5 ml-6">
+                  {analysisResult.strengths.map((strength, index) => (
+                    <li key={index} className="text-sm text-muted-foreground list-disc">
+                      {strength}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Gaps */}
+            {analysisResult.gaps.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-semibold flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-4 w-4" />
+                  What You Missed
+                </h3>
+                <ul className="space-y-1.5 ml-6">
+                  {analysisResult.gaps.map((gap, index) => (
+                    <li key={index} className="text-sm text-muted-foreground list-disc">
+                      {gap}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Suggestions */}
+            {analysisResult.suggestions.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-semibold flex items-center gap-2 text-blue-600 dark:text-blue-400">
+                  <Lightbulb className="h-4 w-4" />
+                  How to Improve
+                </h3>
+                <ul className="space-y-1.5 ml-6">
+                  {analysisResult.suggestions.map((suggestion, index) => (
+                    <li key={index} className="text-sm text-muted-foreground list-disc">
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
           <CardFooter>
             <Button onClick={handleNewScenario} className="w-full">
@@ -142,7 +242,7 @@ export function InfoSecGame() {
             </Button>
           </CardFooter>
         </Card>
-      )}
+      ) : null}
 
       <TimeRestrictionDialog open={dialogOpen} onOpenChange={setDialogOpen} timeRemaining={timeRemaining} />
     </div>
