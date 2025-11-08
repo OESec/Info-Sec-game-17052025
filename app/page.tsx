@@ -11,6 +11,9 @@ export default function Home() {
           </p>
         </header>
         <InfoSecGame />
+        <footer className="mt-12 pt-8 border-t border-slate-200 dark:border-slate-800 text-center">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Created May 17th 2025 | Edewede O.</p>
+        </footer>
       </div>
     </main>
   )
